@@ -1,8 +1,8 @@
 use std::fmt::Display;
-use std::io::{BufWriter, Write, BufReader, BufRead, Read};
+use std::io::{Write, BufRead};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::{thread, fs};
+use std::thread;
 use std::time::Duration;
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 
@@ -122,19 +122,19 @@ fn consume(
         for ms in ms.iter() {
             for m in ms.messages() {
                 if let Err(e) = stdout.write_all(m.value) {
-                    eprintln!("{:#?}", e);
+                    log::error!("{:#?}", e);
                     sequential_errors += 1;
                 }
             }
             if let Err(e) = consumer.consume_messageset(ms) {
-                eprintln!("{:#?}", e);
+                log::error!("{:#?}", e);
                 sequential_errors += 1;
             };
         }
 
         match consumer.commit_consumed() {
             Err(e) => {
-                eprintln!("{:#?}", e);
+                log::error!("{:#?}", e);
                 sequential_errors += 1;
             },
             Ok(_) => sequential_errors = 0,
@@ -159,6 +159,8 @@ fn produce(topic: &String, brokers: &Vec<String>) {
         .create()
         .unwrap();
 
+    log::info!("created kafka producer @ {:?} to topic {:?}", brokers, topic);
+
     let stdin = std::io::stdin();
     let mut stdin = stdin.lock();
     const BUF_LENGTH: usize = 8192 * 10;
@@ -172,11 +174,13 @@ fn produce(topic: &String, brokers: &Vec<String>) {
             num_bytes += read_bytes;
 
             if read_bytes == 0 {
-                eprintln!("reached EOF");
+                log::info!("reached EOF... exiting");
                 running.store(false, Ordering::Relaxed);
                 break
             }
         }
+
+        if buf.is_empty() { continue }
 
         let recs: Vec<Record<'_, (), String>> = buf.lines()
             .map(|t| t.unwrap())
@@ -185,9 +189,8 @@ fn produce(topic: &String, brokers: &Vec<String>) {
             .collect();
 
         if recs.is_empty() {
-            eprintln!("ping");
-            thread::sleep(Duration::from_secs(3));
-            continue;
+            log::error!("no lines in buffer. this is not supposed to happen... exiting");
+            break;
         }
 
         let _ = producer.send_all(&recs).unwrap();
@@ -200,6 +203,7 @@ fn produce(topic: &String, brokers: &Vec<String>) {
 
 fn main() {
     let args = Args::parse();
+    env_logger::init();
 
     match &args.command {
         Subargs::Consume{
