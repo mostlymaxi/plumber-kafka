@@ -1,1 +1,6 @@
 /target
+test_*
+
+# MacOS
+.DS_Store
+
