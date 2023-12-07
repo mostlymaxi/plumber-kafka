@@ -2,6 +2,13 @@
 name = "plumber-kafka"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/MostlyMax/plumber-kafka"
+documentation = "https://docs.rs/plumber-kafka"
+authors = ["Maxi Saparov"]
+keywords = ["pipe", "pipeline"]
+categories = ["command-line-utilities"]
+license = "MIT"
+description = "easy to use Kafka CLI"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
