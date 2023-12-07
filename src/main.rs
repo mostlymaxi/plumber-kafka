@@ -163,6 +163,8 @@ fn produce(topic: &String, brokers: &Vec<String>) {
 
     let stdin = std::io::stdin();
     let mut stdin = stdin.lock();
+
+    // user should be allowed to change these values:
     const BUF_LENGTH: usize = 8192 * 10;
     const REASONABLE_AMOUNT_OF_BYTES: usize = BUF_LENGTH - 8192;
     let mut buf = Vec::with_capacity(BUF_LENGTH);
