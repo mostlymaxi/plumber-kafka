@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::{atomic::{AtomicBool, Ordering}, Arc}};
 
 use clap::ValueEnum;
 use kafka::{consumer::FetchOffset, producer::RequiredAcks};
@@ -9,8 +9,8 @@ pub enum ClapFetchOffsetWrapper {
     Earliest,
 }
 
-impl From<&ClapFetchOffsetWrapper> for FetchOffset {
-    fn from(val: &ClapFetchOffsetWrapper) -> Self {
+impl From<ClapFetchOffsetWrapper> for FetchOffset {
+    fn from(val: ClapFetchOffsetWrapper) -> Self {
         match val {
             ClapFetchOffsetWrapper::Latest => FetchOffset::Latest,
             ClapFetchOffsetWrapper::Earliest => FetchOffset::Earliest,
@@ -49,4 +49,15 @@ impl Display for ClapRequiredAcksWrapper {
         let out = out.trim().to_lowercase();
         write!(f, "{}", out)
     }
+}
+
+pub fn get_running_bool() -> Arc<AtomicBool> {
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
+
+    running
 }
