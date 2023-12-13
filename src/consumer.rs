@@ -3,9 +3,12 @@ use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 
 use crate::{Subargs, utils};
 
+// this actually can't fail
+// idk i need to think about how to better implement this
+impl TryFrom<Subargs> for Consumer {
+    type Error = kafka::Error;
 
-impl From<Subargs> for Consumer {
-    fn from(value: Subargs) -> Self {
+    fn try_from(value: Subargs) -> Result<Self, Self::Error> {
         match value {
             Subargs::Consume {
                 brokers, topics, group, fallback_offset, fetch_min_bytes, max_partition_fetch_bytes, fetch_max_bytes
@@ -28,7 +31,7 @@ impl From<Subargs> for Consumer {
                     .expect("Failed to create kafka consumer");
 
                 log::info!("created kafka consumer @ {:?} from topics {:?}", brokers, topics);
-                consumer
+                Ok(consumer)
             },
             Subargs::Produce { .. } => panic!("Tried to create consumer from producer arguments"),
         }
@@ -38,7 +41,7 @@ impl From<Subargs> for Consumer {
 
 pub fn run(max_errors: usize, args: Subargs) {
     let running = utils::get_running_bool();
-    let mut consumer = Consumer::from(args);
+    let mut consumer = Consumer::try_from(args).unwrap();
     let mut sequential_errors: usize = 0;
 
     let stdout = std::io::stdout();
