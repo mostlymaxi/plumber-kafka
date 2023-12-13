@@ -1,13 +1,4 @@
-
-use std::io::{Write, BufRead};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
-
 use clap::Parser;
-use kafka::producer::{Producer, RequiredAcks, Record};
 
 mod utils;
 mod consumer;

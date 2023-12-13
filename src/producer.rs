@@ -1,8 +1,8 @@
 use std::{time::Duration, sync::atomic::Ordering, io::BufRead};
-
 use kafka::producer::{Producer, RequiredAcks, Record};
 
 use crate::utils;
+
 
 pub fn run(topic: &String, brokers: &Vec<String>, required_acks: RequiredAcks) {
     let running = utils::get_running_bool();

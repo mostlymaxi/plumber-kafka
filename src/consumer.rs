@@ -1,8 +1,8 @@
 use std::{time::Duration, sync::atomic::Ordering, thread, io::Write };
-
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 
 use crate::{Subargs, utils};
+
 
 impl From<Subargs> for Consumer {
     fn from(value: Subargs) -> Self {
@@ -34,6 +34,7 @@ impl From<Subargs> for Consumer {
         }
     }
 }
+
 
 pub fn run(max_errors: usize, args: Subargs) {
     let running = utils::get_running_bool();
