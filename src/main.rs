@@ -32,9 +32,9 @@ enum PointlessFetchOffsetWrapper {
     Earliest,
 }
 
-impl Into<FetchOffset> for &PointlessFetchOffsetWrapper {
-    fn into(self) -> FetchOffset {
-        match self {
+impl From<&PointlessFetchOffsetWrapper> for FetchOffset {
+    fn from(val: &PointlessFetchOffsetWrapper) -> Self {
+        match val {
             PointlessFetchOffsetWrapper::Latest => FetchOffset::Latest,
             PointlessFetchOffsetWrapper::Earliest => FetchOffset::Earliest,
         }
@@ -62,9 +62,18 @@ enum Subargs {
         /// consumer group to use
         #[arg(short, long, default_value = "")]
         group: String,
-        /// starting offset
-        #[arg(short, long, default_value_t = PointlessFetchOffsetWrapper::Earliest)]
-        fallback_offset: PointlessFetchOffsetWrapper
+        /// starting and fallback offset
+        #[arg(long, default_value_t = PointlessFetchOffsetWrapper::Earliest)]
+        fallback_offset: PointlessFetchOffsetWrapper,
+        /// fetch.min.bytes
+        #[arg(long, default_value_t = 1)]
+        fetch_min_bytes: i32,
+        /// max.partition.fetch.bytes
+        #[arg(long, default_value_t = 1048576)]
+        max_partition_fetch_bytes: i32,
+        /// fetch.max.bytes
+        #[arg(long, default_value_t = 52428800)]
+        fetch_max_bytes: i32,
     },
     /// produce to kafka topic
     Produce {
@@ -82,8 +91,12 @@ fn consume(
     topics: &Vec<String>,
     brokers: &Vec<String>,
     group: &String,
-    fetch_offset: FetchOffset
+    fetch_offset: FetchOffset,
+    fetch_min_bytes: i32,
+    max_partition_fetch_bytes: i32,
+    fetch_max_bytes: i32,
     ) {
+
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
@@ -92,15 +105,24 @@ fn consume(
     }).expect("Error setting Ctrl-C handler");
 
     let mut consumer = Consumer::from_hosts(brokers.to_vec());
+
     for topic in topics {
         consumer = consumer.with_topic(topic.to_string())
     }
+
     let mut consumer = consumer
         .with_fallback_offset(fetch_offset)
+        .with_fetch_max_bytes_per_partition(max_partition_fetch_bytes)
+        .with_retry_max_bytes_limit(fetch_max_bytes)
+        .with_fetch_min_bytes(fetch_min_bytes)
+        .with_fetch_max_wait_time(Duration::from_secs(1))
         .with_group(group.to_string())
         .with_offset_storage(Some(GroupOffsetStorage::Kafka))
         .create()
         .expect("Failed to create kafka consumer");
+
+    log::info!("created kafka consumer @ {:?} from topics {:?}", brokers, topics);
+
 
     let mut sequential_errors: usize = 0;
 
@@ -110,20 +132,30 @@ fn consume(
     while running.load(Ordering::Relaxed) {
         match sequential_errors.cmp(&max_errors) {
             std::cmp::Ordering::Less => {},
-            std::cmp::Ordering::Equal => break,
-            std::cmp::Ordering::Greater => break,
+            std::cmp::Ordering::Equal => { log::error!("hit max errors: {:?}", max_errors); break; },
+            std::cmp::Ordering::Greater => { log::error!("hit max errors: {:?}", max_errors); break; },
         };
 
         let Ok(ms) = consumer.poll() else {
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_millis(500));
+            log::trace!("{:#?}", consumer.poll());
+            log::trace!("polling...");
             continue;
         };
+
+        if ms.is_empty() {
+            thread::sleep(Duration::from_millis(500));
+            log::trace!("empty... polling...");
+            continue;
+        }
 
         for ms in ms.iter() {
             for m in ms.messages() {
                 if let Err(e) = stdout.write_all(m.value) {
                     log::error!("{:#?}", e);
                     sequential_errors += 1;
+                } else {
+                    let _ = stdout.write_all(&[b'\n']);
                 }
             }
             if let Err(e) = consumer.consume_messageset(ms) {
@@ -190,6 +222,8 @@ fn produce(topic: &String, brokers: &Vec<String>) {
             .map(|s| Record::from_value(topic, s))
             .collect();
 
+        log::trace!("{:#?}", recs);
+
         if recs.is_empty() {
             log::error!("no lines in buffer. this is not supposed to happen... exiting");
             break;
@@ -205,19 +239,27 @@ fn produce(topic: &String, brokers: &Vec<String>) {
 
 fn main() {
     let args = Args::parse();
-    env_logger::init();
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"));
 
     match &args.command {
         Subargs::Consume {
             topics,
             group,
-            fallback_offset, brokers } => {
+            fallback_offset,
+            brokers,
+            fetch_min_bytes,
+            max_partition_fetch_bytes,
+            fetch_max_bytes } => {
                 consume(
                     args.max_errors,
                     topics,
                     brokers,
                     group,
-                    fallback_offset.into()
+                    fallback_offset.into(),
+                    *fetch_min_bytes,
+                    *max_partition_fetch_bytes,
+                    *fetch_max_bytes,
                 );
             },
         Subargs::Produce {
