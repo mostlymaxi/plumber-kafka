@@ -57,7 +57,7 @@ enum Subargs {
         #[arg(short, long, required = true)]
         brokers: Vec<String>,
         /// topics to consume from
-        #[arg(short, long, num_args = 1..)]
+        #[arg(short, long, required = true)]
         topics: Vec<String>,
         /// consumer group to use
         #[arg(short, long, default_value = "")]
@@ -208,7 +208,7 @@ fn main() {
     env_logger::init();
 
     match &args.command {
-        Subargs::Consume{
+        Subargs::Consume {
             topics,
             group,
             fallback_offset, brokers } => {
@@ -220,7 +220,9 @@ fn main() {
                     fallback_offset.into()
                 );
             },
-        Subargs::Produce { topic, brokers } => {
+        Subargs::Produce {
+            topic,
+            brokers } => {
             produce(topic, brokers);
         }
     };
