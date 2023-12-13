@@ -9,6 +9,8 @@ use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use clap::{Parser, ValueEnum};
 use kafka::producer::{Producer, RequiredAcks, Record};
 
+mod utils;
+
 /// unix pipelines made easy!
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -26,29 +28,6 @@ struct Args {
     max_errors: usize,
 }
 
-#[derive(Clone, ValueEnum, Debug)]
-enum PointlessFetchOffsetWrapper {
-    Latest,
-    Earliest,
-}
-
-impl From<&PointlessFetchOffsetWrapper> for FetchOffset {
-    fn from(val: &PointlessFetchOffsetWrapper) -> Self {
-        match val {
-            PointlessFetchOffsetWrapper::Latest => FetchOffset::Latest,
-            PointlessFetchOffsetWrapper::Earliest => FetchOffset::Earliest,
-        }
-    }
-}
-
-impl Display for PointlessFetchOffsetWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let out = format!("{:?}", self);
-        let out = out.trim().to_lowercase();
-        write!(f, "{}", out)
-    }
-}
-
 #[derive(clap::Subcommand)]
 enum Subargs {
     /// consume from kafka topic
@@ -63,8 +42,8 @@ enum Subargs {
         #[arg(short, long, default_value = "")]
         group: String,
         /// starting and fallback offset
-        #[arg(long, default_value_t = PointlessFetchOffsetWrapper::Earliest)]
-        fallback_offset: PointlessFetchOffsetWrapper,
+        #[arg(long, default_value_t = utils::ClapFetchOffsetWrapper::Earliest)]
+        fallback_offset: utils::ClapFetchOffsetWrapper,
         /// fetch.min.bytes
         #[arg(long, default_value_t = 1)]
         fetch_min_bytes: i32,
@@ -83,6 +62,10 @@ enum Subargs {
         /// topic to produce to
         #[arg(short, long)]
         topic: String,
+        /// required acks
+        #[arg(long, default_value_t = utils::ClapRequiredAcksWrapper::None)]
+        required_acks: utils::ClapRequiredAcksWrapper,
+
     },
 }
 
@@ -174,7 +157,7 @@ fn consume(
     }
 }
 
-fn produce(topic: &String, brokers: &Vec<String>) {
+fn produce(topic: &String, brokers: &Vec<String>, required_acks: RequiredAcks) {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
@@ -183,11 +166,8 @@ fn produce(topic: &String, brokers: &Vec<String>) {
     }).expect("Error setting Ctrl-C handler");
 
     let mut producer = Producer::from_hosts(brokers.to_vec())
-        // ~ give the brokers one second time to ack the message
         .with_ack_timeout(Duration::from_secs(1))
-        // ~ require only one broker to ack the message
-        .with_required_acks(RequiredAcks::None)
-        // ~ build the producer with the above settings
+        .with_required_acks(required_acks)
         .create()
         .unwrap();
 
@@ -264,8 +244,9 @@ fn main() {
             },
         Subargs::Produce {
             topic,
-            brokers } => {
-            produce(topic, brokers);
+            brokers,
+            required_acks, } => {
+            produce(topic, brokers, required_acks.into());
         }
     };
 }
