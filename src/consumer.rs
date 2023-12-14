@@ -1,7 +1,31 @@
 use std::{time::Duration, sync::atomic::Ordering, thread, io::Write };
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, MessageSet};
 
 use crate::{Subargs, utils};
+
+trait DumpMessageSet {
+    fn dump_messageset<T: Write>(&self, msgs: &MessageSet, f: T) -> Result<(), std::io::Error>;
+}
+
+impl DumpMessageSet for Consumer {
+    fn dump_messageset<T: Write>(&self, msgs: &MessageSet, mut f: T) -> Result<(), std::io::Error> {
+        for m in msgs.messages() {
+            f.write_all(m.value)?;
+            // unwrap_or_else(|e| {
+            //     log::error!("encountered an error when dumping message set: {e}. exiting gracefully...");
+            //     running.store(false, Ordering::Relaxed);
+            // });
+
+            f.write_all(&[b'\n'])?
+            // .unwrap_or_else(|e| {
+            //     log::error!("encountered an error when dumping message set: {e}. exiting gracefully...");
+            //     running.store(false, Ordering::Relaxed);
+            // });
+        }
+
+        Ok(())
+    }
+}
 
 // this actually can't fail
 // idk i need to think about how to better implement this
@@ -11,8 +35,14 @@ impl TryFrom<Subargs> for Consumer {
     fn try_from(value: Subargs) -> Result<Self, Self::Error> {
         match value {
             Subargs::Consume {
-                brokers, topics, group, fallback_offset, fetch_min_bytes, max_partition_fetch_bytes, fetch_max_bytes
-            } => {
+                    brokers,
+                    topics,
+                    group,
+                    fallback_offset,
+                    fetch_min_bytes,
+                    max_partition_fetch_bytes,
+                    fetch_max_bytes } => {
+
                 let mut consumer = Consumer::from_hosts(brokers.to_vec());
 
                 for topic in &topics {
@@ -54,43 +84,40 @@ pub fn run(max_errors: usize, args: Subargs) {
             std::cmp::Ordering::Greater => { log::error!("hit max errors: {:?}", max_errors); break; },
         };
 
-        let Ok(ms) = consumer.poll() else {
-            thread::sleep(Duration::from_millis(500));
-            log::trace!("{:#?}", consumer.poll());
-            log::trace!("polling...");
-            continue;
+        let ms = match consumer.poll() {
+            Ok(ms) => ms,
+            Err(e) => {
+                log::error!("error polling: {:?}, backing off for 5 seconds and trying again", e);
+                thread::sleep(Duration::from_secs(5));
+                sequential_errors += 1;
+                continue
+            }
         };
 
         if ms.is_empty() {
             thread::sleep(Duration::from_millis(500));
             log::trace!("empty... polling...");
+            sequential_errors = 0;
             continue;
         }
 
         for ms in ms.iter() {
-            for m in ms.messages() {
-                stdout.write_all(m.value).unwrap_or_else(|e| {
-                    log::error!("encountered an error when writing to stdout: {e}. exiting gracefully...");
-                    running.store(false, Ordering::Relaxed);
-                });
+            if let Err(e) = consumer.dump_messageset(&ms, &mut stdout) {
+                log::error!("encountered an error when writing to stdout: {e}. exiting gracefully...");
+                running.store(false, Ordering::Relaxed);
+            };
 
-                stdout.write_all(&[b'\n']).unwrap_or_else(|e| {
-                    log::error!("encountered an error when writing to stdout: {e}. exiting gracefully...");
-                    running.store(false, Ordering::Relaxed);
-                });
-            }
             if let Err(e) = consumer.consume_messageset(ms) {
                 log::error!("error consuming message set: {:#?}", e);
                 sequential_errors += 1;
             };
         }
 
-        match consumer.commit_consumed() {
-            Err(e) => {
-                log::error!("error commiting offsets: {:#?}", e);
-                sequential_errors += 1;
-            },
-            Ok(_) => sequential_errors = 0,
-        };
+        if let Err(e) = consumer.commit_consumed() {
+            log::error!("error commiting offsets: {:#?}", e);
+            sequential_errors += 1;
+        } else {
+            sequential_errors = 0;
+        }
     }
 }

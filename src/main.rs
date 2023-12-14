@@ -75,11 +75,8 @@ fn main() {
                     args.command
                 );
             },
-        Subargs::Produce {
-            topic,
-            brokers,
-            required_acks, } => {
-            producer::run(topic, brokers, required_acks.into());
+        Subargs::Produce { .. } => {
+            producer::run(args.max_errors, args.command);
         }
     };
 }

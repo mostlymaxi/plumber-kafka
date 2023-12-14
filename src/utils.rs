@@ -33,8 +33,8 @@ pub enum ClapRequiredAcksWrapper {
     All
 }
 
-impl From<&ClapRequiredAcksWrapper> for RequiredAcks {
-    fn from(val: &ClapRequiredAcksWrapper) -> Self {
+impl From<ClapRequiredAcksWrapper> for RequiredAcks {
+    fn from(val: ClapRequiredAcksWrapper) -> Self {
         match val {
             ClapRequiredAcksWrapper::None => RequiredAcks::None,
             ClapRequiredAcksWrapper::One => RequiredAcks::One,
